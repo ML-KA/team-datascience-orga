@@ -1,2 +1,2 @@
-# -team-datascience
+# Team Data Science
 Repository of team data science
