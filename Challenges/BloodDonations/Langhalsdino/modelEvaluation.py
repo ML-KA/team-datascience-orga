@@ -1,4 +1,7 @@
 import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import random
 from sklearn import model_selection, metrics
 from sklearn import linear_model, svm, ensemble
 from imblearn.over_sampling import RandomOverSampler
@@ -9,8 +12,8 @@ test_file = "BloodDonationTest.csv"
 result_file = "resultSVC.csv"
 
 models = {
-    "LogisticRegression": (linear_model.LogisticRegression, {}),
-    "LogisticRegressionWithParam": (linear_model.LogisticRegression, {
+    "Logistic Regression": (linear_model.LogisticRegression, {}),
+    "Logistic Regression With Param": (linear_model.LogisticRegression, {
         "fit_intercept": False,
         "max_iter": 99999999,
         "intercept_scaling": 0.0000001
@@ -18,8 +21,8 @@ models = {
     "SVM": (svm.SVC, {
         "probability": True
     }),
-    "RandomForest": (ensemble.RandomForestClassifier, {}),
-    "GradientBoosting": (ensemble.GradientBoostingClassifier, {})
+    "Random Forest": (ensemble.RandomForestClassifier, {}),
+    "Gradient Boosting": (ensemble.GradientBoostingClassifier, {})
 }
 
 
@@ -117,10 +120,10 @@ def loadDataTrainOversampledDistributed():
 
 # Cross validate the given model on the given dataset using StratifiedKFold with 10 folds
 # Loss function is logloss, return scores sorted ascending
-def crossValidateModels(models, train_values, train_target):
+def crossValidateModels(models, rState, train_values, train_target):
     model_scores = {}
     metric = metrics.log_loss
-    splitter = model_selection.StratifiedKFold(n_splits=10)
+    splitter = model_selection.StratifiedKFold(n_splits=10, shuffle=True, random_state=rState)
 
     # for train_index, test_index in splitter.split(train_values, train_target):
     #     print("Train", train_target[train_index])
@@ -146,12 +149,11 @@ def crossValidateModels(models, train_values, train_target):
 
 
 # fit the model and create predictions for the test values, write it all to correctly formatted csv
-def createUploadFile(model_class,
-                     train_values,
-                     train_target,
-                     test_values,
-                     test_id,
-                     params={}):
+def createUploadFile(model_class, train_data, test_data, params={}):
+    train_values = train_data["train_values"]
+    train_target = train_data["train_target"]
+    test_values = test_data["test_values"]
+    test_id = test_data["test_id"]
     model = model_class(**params)
     model.fit(train_values, train_target)
     predictions = model.predict_proba(test_values)[:, 1]
@@ -168,42 +170,132 @@ def printScores(scores):
     for (model, score) in scores:
         print(model + ":", score)
 
+def getHex(r, g, b):
+    r = hex(r)[2:]
+    g = hex(g)[2:]
+    b = hex(b)[2:]
+    if len(r)<2:
+        r = "0" + r
+    if len(g)<2:
+        g = "0" + g
+    if len(b)<2:
+        b = "0" + b
+    col = r + g + b
+    return "#" + col.upper()
+
+def plotDataByGroup(model_scores):
+    plt.subplot(212)
+
+    index = np.arange(5)
+    bar_width = 0.2
+
+    opacity = 0.4
+    col = 0
+    n = 0
+    names = []
+
+    for key in model_scores:
+        group = model_scores[key]
+        value = []
+        names = []
+        for model in group:
+            names.append(model[0])
+            value.append(abs(model[1]))
+
+        # add bar graph
+        pltbar = plt.bar(index + (bar_width * n), value, bar_width,
+                     alpha=opacity,
+                     color=getHex((col*10) % 255, (col*5) % 255, (col*2) % 255),
+                     label=key)
+        col = random.randrange(0,256)
+        n = n + 1
+
+    plt.xlabel('Group')
+    plt.ylabel('Scores')
+    plt.title('Scores by group and technique')
+    plt.xticks(index + 0.4, names, rotation=5)
+    plt.legend()
+
+def plotDataByModel(model_scores):
+    plt.subplot(211)
+
+    index = np.arange(4)
+    bar_width = 0.19
+
+    opacity = 0.4
+    col = 0
+    n = 0
+
+    value = []
+    name = []
+    lastKey = ""
+    for key in model_scores:
+         lastKey = key
+
+    for model in model_scores[lastKey]:
+        value.append([])
+
+    for key in model_scores:
+        group = model_scores[key]
+        n = 0;
+        for model in group:
+            value[n].append(abs(model[1]))
+            n = n + 1
+        name.append(key)
+
+    n = 0
+    for val in value:
+        pltbar = plt.bar(index + (bar_width * n), val, bar_width,
+                     alpha=opacity,
+                     color=getHex((col*10) % 255, (col*5) % 255, (col*2) % 255),
+                     label=model_scores[lastKey][n][0])
+        col = random.randrange(0,256)
+        n = n + 1
+
+    plt.xlabel('Model')
+    plt.ylabel('Scores')
+    plt.title('Scores by group and technique')
+    plt.xticks(index + 0.4, name)
+    plt.legend()
 
 def main():
     model_scores = {}
+    # Define random state for StratifiedKFold shuffle
+    randomState = 0
+
     # Scores without modifying data, applying the models without modifications
     train_data = loadDataTrain()
-    model_scores["no Modifications"] = crossValidateModels(models,
-                                                           **train_data)
+    model_scores["no Modifications"] = crossValidateModels(models, randomState, **train_data)
     print("Scores without modifying:")
     printScores(model_scores["no Modifications"])
 
     # Scores with remove Volume from data, direct correlation with num of donations
     train_data = loadDataTrainNoVolume()
-    model_scores["Volume removed"] = crossValidateModels(models, **train_data)
+    model_scores["Volume removed"] = crossValidateModels(models, randomState, **train_data)
     print("\nScores with Volume in Data Removed")
     printScores(model_scores["Volume removed"])
 
     # Scores with remove Volume and oversampling
     train_data = loadDataTrainOversampled()
-    model_scores["Add oversampling"] = crossValidateModels(models,
-                                                           **train_data)
+    model_scores["Add oversampling"] = crossValidateModels(models, randomState, **train_data)
     print("\nScores with Oversampling")
     printScores(model_scores["Add oversampling"])
 
     # Score with rm Vol, oversampling, sorted by id
     # for sort of evenly distributed target
     train_data = loadDataTrainOversampledDistributed()
-    model_scores["Evenly distribute"] = crossValidateModels(models,
-                                                            **train_data)
+    model_scores["Evenly distribute"] = crossValidateModels(models, randomState, **train_data)
     print("\nScores with distribution")
     printScores(model_scores["Evenly distribute"])
 
     # Create the file to upload
     train_data= loadDataTrainNoVolume()
     test_data = loadDataTestNoVolume()
-    createUploadFile(linear_model.LogisticRegression, **test_data,
-                     **train_data)
+    createUploadFile(linear_model.LogisticRegression, train_data, test_data)
 
+    plt.figure(figsize=(15,9))
+    plotDataByGroup(model_scores)
+    plotDataByModel(model_scores)
+    plt.show()
 
 main()
