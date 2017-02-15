@@ -25,7 +25,6 @@ models = {
     "Gradient Boosting": (ensemble.GradientBoostingClassifier, {})
 }
 
-
 # Load the training data without changing anything
 def loadDataTrain():
     train_df = pd.read_csv(training_file, header=0)
@@ -141,11 +140,10 @@ def crossValidateModels(models, rState, train_values, train_target):
         model_scores[modelName] = scores.mean()
 
     # sort the result
-    sorted_names = sorted(model_scores, key=model_scores.get)
-    sorted_scores = []
-    for name in sorted_names:
-        sorted_scores.append((name, model_scores[name]))
-    return sorted_scores
+    scores = []
+    for name in model_scores:
+        scores.append((name, model_scores[name]))
+    return scores
 
 
 # fit the model and create predictions for the test values, write it all to correctly formatted csv
