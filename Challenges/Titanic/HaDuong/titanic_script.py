@@ -31,6 +31,7 @@ test_data = pd.read_csv("test.csv", index_col = 0, na_values = "null")
 training_data.head()
 training_data.describe()
 
+## Pre Processing
 # transform Embarked & Sex in numeric values
 training_data.loc[training_data["Embarked"]=="C", "Embarked"] = 1
 training_data.loc[training_data["Embarked"]=="Q", "Embarked"] = 2
@@ -55,36 +56,26 @@ test_data = test_data.drop('Cabin', 1)
 
 # fill empty & NaN values with median
 training_data = training_data.replace(r'\s+', np.nan, regex=True)
-training_data.apply(lambda x: x.fillna(x.median()),axis=1)
+# training_data['Age'].fillna(training_data['Age'].median(), inplace=True)
+training_data.apply(lambda x: x.fillna(x.median()),axis=0)
 training_data.loc[training_data["Age"].isnull(),'Age'] = training_data.Age.median()
 training_data.loc[training_data["Embarked"].isnull(),'Embarked'] = training_data.Age.median()
 
 test_data = test_data.replace(r'\s+', np.nan, regex=True)
-test_data.apply(lambda x: x.fillna(x.median()),axis=1)
+test_data.apply(lambda x: x.fillna(x.median()),axis=0)
 test_data.loc[test_data["Age"].isnull(),'Age'] = test_data.Age.median()
 test_data.loc[test_data["Embarked"].isnull(),'Embarked'] = test_data.Age.median()
 test_data.loc[test_data["Fare"].isnull(),'Fare'] = test_data.Age.median()
 
-# plot data
-for column in training_data.columns:
-    plt.figure(figsize=(10,2))
-    sns.distplot(training_data[column])
+# scale features to [0,1]
+training_data.apply(lambda x: x/x.max(),axis=0)
+test_data.apply(lambda x: x/x.max(),axis=0)
 
-# log loss function
-def calculate_score(labels, pred):
-    """Calculate the score according to competition rules."""
-    score = 0
-    # Add 10**-7 to avoid math error of log(0)
-    for l, p in zip(labels, pred):
-        score += l * log(p + 10**-7) + (1 - l) * log(1 - p + 10**-7)
-    return (-1) * (1. / len(labels)) * score
-
-## Define features and prediction
+# Define features and prediction
 target = "Survived"
 xTrain = training_data.ix[:, training_data.columns.difference([target])]
 yTrain = training_data.ix[:,target]
 xTest = test_data.ix[:, test_data.columns.difference([target])]
-
 
 # It's easier to work with numpy
 train_x_orig = xTrain.as_matrix()
@@ -94,6 +85,55 @@ train_y_orig = yTrain.as_matrix()
 perm = np.random.permutation(len(train_y_orig))
 train_x_orig = train_x_orig[perm]
 train_y_orig = train_y_orig[perm]
+
+## Data visualization
+# plot data distributions in histograms
+for column in training_data.columns:
+    plt.figure(figsize=(10,2))
+    sns.distplot(training_data[column])
+
+# survival vs gender
+survived_sex = training_data[training_data['Survived']==1]['Sex'].value_counts()
+dead_sex = training_data[training_data['Survived']==0]['Sex'].value_counts()
+survivalgender_df = pd.DataFrame([survived_sex,dead_sex])
+survivalgender_df.index = ['Survived','Dead']
+survivalgender_df.columns = ['female','male']
+survivalgender_df.plot(kind='bar',stacked=True, figsize=(15,8))
+
+# survival vs age
+figure = plt.figure(figsize=(15,8))
+plt.hist([training_data[training_data['Survived']==1]['Age'],training_data[training_data['Survived']==0]['Age']], stacked=True, color = ['g','r'],
+         bins = 30,label = ['Survived','Dead'])
+plt.xlabel('Age')
+plt.ylabel('Number of passengers')
+plt.legend()
+
+# fare ticket
+figure = plt.figure(figsize=(15,8))
+plt.hist([training_data[training_data['Survived']==1]['Fare'],training_data[training_data['Survived']==0]['Fare']], stacked=True, color = ['g','r'],
+         bins = 30,label = ['Survived','Dead'])
+plt.xlabel('Fare')
+plt.ylabel('Number of passengers')
+plt.legend()
+
+# Age x Fare x Survival
+plt.figure(figsize=(15,8))
+ax = plt.subplot()
+ax.scatter(training_data[training_data['Survived']==1]['Age'],training_data[training_data['Survived']==1]['Fare'],c='green',s=40)
+ax.scatter(training_data[training_data['Survived']==0]['Age'],training_data[training_data['Survived']==0]['Fare'],c='red',s=40)
+ax.set_xlabel('Age')
+ax.set_ylabel('Fare')
+ax.legend(('survived','dead'),scatterpoints=1,loc='upper right',fontsize=15,)
+
+## Prepare modelling & model selection
+# log loss function
+def calculate_score(labels, pred):
+    """Calculate the score according to competition rules."""
+    score = 0
+    # Add 10**-7 to avoid math error of log(0)
+    for l, p in zip(labels, pred):
+        score += l * log(p + 10**-7) + (1 - l) * log(1 - p + 10**-7)
+    return (-1) * (1. / len(labels)) * score
 
 # Get classifiers
 classifiers = [
@@ -124,10 +164,9 @@ classifiers = [
         ('Gradient Boosting', GradientBoostingClassifier()),
     ]
 
+# Find best classifier through cross validation
 kf = StratifiedKFold(n_splits=5)
 i = 0
-
-# Find best classifier
 for clf_name, clf in classifiers:
     print("-" * 80)
     print("Name: %s (%i)" % (clf_name, i))
@@ -151,16 +190,29 @@ for clf_name, clf in classifiers:
     i += 1
 print("#" * 80)
 
-# Train classifier on complete data
-# classifier[13] is best model here
+## Model Training
+# Create ensemble with 3 best models and use mean prediction
+# Prediction with Top 3 models:
+clf_name, clf = classifiers[1]
+print("Train %s on complete data" %
+      (clf_name))
+clf.fit(train_x_orig, train_y_orig)
+test_predicted1 = clf.predict_proba(xTest)[:, 1]
+
+clf_name, clf = classifiers[10]
+print("Train %s on complete data" %
+      (clf_name))
+clf.fit(train_x_orig, train_y_orig)
+test_predicted2 = clf.predict_proba(xTest)[:, 1]
+
 clf_name, clf = classifiers[13]
 print("Train %s on complete data" %
       (clf_name))
 clf.fit(train_x_orig, train_y_orig)
+test_predicted3 = clf.predict_proba(xTest)[:, 1]
 
-# Predict and write output
-test_predicted = clf.predict_proba(xTest)[:, 1]
-test_predicted
+# Combine predictions using average 
+test_predicted = (test_predicted1 + test_predicted2 + test_predicted3) / 3
 
 # save prediction to file
 predictionDF = pd.DataFrame(data=test_predicted,index=test_data.index.values)
